@@ -19,6 +19,29 @@ void USHST_AudioManager::BeginPlay()
 	Super::BeginPlay();
 	// ...
 
+	if (m_AudioBank.Num() > 0 && m_MusicBank.Num() > 0)
+	{
+		return;
+	}
+
+	// Load audio from list at start
+	for (FString audioName : m_audioToLoadAtStart)
+	{
+		if (!m_AudioBank.Find(audioName))
+		{
+			LoadAudio(audioName);
+		}
+	}
+
+	// Load music from list at start
+	for (FString musicName : m_musicToLoadAtStart)
+	{
+		if (!m_MusicBank.Find(musicName))
+		{
+			LoadMusic(musicName);
+		}
+	}
+
 }
 
 
@@ -72,6 +95,19 @@ void USHST_AudioManager::CheckForStoppedUAudio()
 		}
 
 	}
+
+	if (m_ActiveStem.Num() > 0) {
+
+		for (auto StemIt = m_ActiveStem.CreateIterator(); StemIt; ++StemIt)
+		{
+			if (StemIt.Value()->IsPlaying() == false)
+			{
+				StemIt.RemoveCurrent();
+			}
+		}
+	}
+
+
 }
 
 
@@ -134,14 +170,39 @@ void USHST_AudioManager::ResumeMusic()
 		}
 	}
 }
-
-
-
-void USHST_AudioManager::PlayAudio(FString AudioName)
+void USHST_AudioManager::LoadAudio(FString AudioName)
 {
 	FString FolderPath = TEXT("/Game/Sound/Sound_Effects/SFX/" + AudioName);
 	const TCHAR* FilePath = *FolderPath;
 	USoundBase* SoundCue = Cast<USoundBase>(StaticLoadObject(USoundBase::StaticClass(), NULL, FilePath));
+	m_AudioBank.Add(AudioName, SoundCue);
+}
+void USHST_AudioManager::LoadMusic(FString AudioName,float duration)
+{
+	FString FolderPath = TEXT("/Game/Sound/Music/" + AudioName);
+	const TCHAR* FilePath = *FolderPath;
+	USoundBase* SoundCue = Cast<USoundBase>(StaticLoadObject(USoundBase::StaticClass(), NULL, FilePath));
+	m_MusicBank.Add(AudioName, SoundCue);
+	m_MusicDurationBank.Add(AudioName, duration);
+}
+
+void USHST_AudioManager::LoadAttenuation(FString AudioName)
+{
+	FString FolderPath2 = TEXT("/Game/Sound/Sound_Effects/Attenuation/" + AudioName);
+	const TCHAR* FilePath2 = *FolderPath2;
+	USoundAttenuation* Attenuationer = Cast<USoundAttenuation>(StaticLoadObject(USoundAttenuation::StaticClass(), NULL, FilePath2));
+	m_AttenuationBank.Add(AudioName, Attenuationer);
+}
+
+
+void USHST_AudioManager::PlayAudio(FString AudioName)
+{
+
+	if (!m_AudioBank.Find(AudioName))
+	{
+		LoadAudio(AudioName);
+	}
+	USoundBase* SoundCue = m_AudioBank[AudioName];
 	if (SoundCue != nullptr)
 	{
 		UAudioComponent* NewAudio = NewObject <UAudioComponent>(this, UAudioComponent::StaticClass());
@@ -159,11 +220,20 @@ void USHST_AudioManager::PlayAudio(FString AudioName)
 
 
 
-void USHST_AudioManager::PlayAudioAtLocation(FString AudioName, USoundAttenuation* Attenuationer, FVector Location)
+void USHST_AudioManager::PlayAudioAtLocation(FString AudioName, FString AttenuationName, FVector Location)
 {
-	FString FolderPath = TEXT("/Game/Sound/Sound_Effects/SFX/" + AudioName);
-	const TCHAR* FilePath = *FolderPath;
-	USoundBase* SoundCue = Cast<USoundBase>(StaticLoadObject(USoundBase::StaticClass(), NULL, FilePath));
+	if (!m_AudioBank.Find(AudioName))
+	{
+		LoadAudio(AudioName);
+	}
+
+	if (!m_AttenuationBank.Find(AttenuationName))
+	{
+		LoadAttenuation(AttenuationName);
+	}
+	USoundBase* SoundCue = m_AudioBank[AudioName];
+	USoundAttenuation* Attenuationer = m_AttenuationBank[AttenuationName];
+
 
 
 	if (SoundCue != nullptr)
@@ -199,16 +269,19 @@ void USHST_AudioManager::PlayAudioAtLocation(FString AudioName, USoundAttenuatio
 	}
 }
 
-void USHST_AudioManager::PlayMusic(FString AudioName)
+void USHST_AudioManager::PlayMusic(FString AudioName,float starttime)
 {
-	FString FolderPath = TEXT("/Game/Sound/Music/" + AudioName);
-	const TCHAR* FilePath = *FolderPath;
-	USoundBase* SoundCue = Cast<USoundBase>(StaticLoadObject(USoundBase::StaticClass(), NULL, FilePath));
+	if (!m_MusicBank.Find(AudioName))
+	{
+		LoadMusic(AudioName);
+	}
+	USoundBase* SoundCue = m_MusicBank[AudioName];
 	if (SoundCue != nullptr)
 	{
+		StopMusic();
 		UAudioComponent* NewAudio = NewObject <UAudioComponent>(this, UAudioComponent::StaticClass());
 		NewAudio->SetSound(SoundCue);
-		NewAudio->Play();
+		NewAudio->Play(starttime* m_MusicDurationBank[AudioName]);
 		m_ActiveMusic.Add(NewAudio);
 	}
 	else
@@ -218,6 +291,10 @@ void USHST_AudioManager::PlayMusic(FString AudioName)
 		UE_LOG(LogTemp, Warning, TEXT("This is the data: %s"), *FString(Errorer));
 	}
 }
+
+
+
+
 
 void USHST_AudioManager::StopMusic()
 {
@@ -233,15 +310,14 @@ void USHST_AudioManager::StopMusic()
 	}
 }
 
-void USHST_AudioManager::CrossfadeMusic(FString AudioName, float duration)
+void USHST_AudioManager::CrossfadeMusic(FString AudioName, float duration,bool random)
 {
+	if (!m_MusicBank.Find(AudioName))
+	{
+		LoadMusic(AudioName);
+	}
 
-
-
-
-	FString FolderPath = TEXT("/Game/Sound/Music/" + AudioName);
-	const TCHAR* FilePath = *FolderPath;
-	USoundBase* SoundCue = Cast<USoundBase>(StaticLoadObject(USoundBase::StaticClass(), NULL, FilePath));
+	USoundBase* SoundCue = m_MusicBank[AudioName];
 	if (SoundCue != nullptr)
 	{
 
@@ -258,8 +334,14 @@ void USHST_AudioManager::CrossfadeMusic(FString AudioName, float duration)
 
 		UAudioComponent* NewAudio = NewObject <UAudioComponent>(this, UAudioComponent::StaticClass());
 		NewAudio->SetSound(SoundCue);
-		NewAudio->FadeIn(duration, 1.0f, 0.0);
-		m_ActiveAudio.Add(NewAudio);
+		float starttime = 0.0f;
+		if (random)
+		{
+			int randomer = FMath::RandRange(0, 4);
+			starttime = 0.2f * randomer;
+		}
+		NewAudio->FadeIn(duration, 1.0f, starttime * m_MusicDurationBank[AudioName]);
+		m_ActiveMusic.Add(NewAudio);
 	}
 	else
 	{
@@ -274,3 +356,123 @@ void USHST_AudioManager::CrossfadeMusic(FString AudioName, float duration)
 
 
 }
+
+
+void USHST_AudioManager::FadeInMusic(FString AudioName, float duration,float starttime)
+{
+
+
+	if (!m_MusicBank.Find(AudioName))
+	{
+		LoadMusic(AudioName);
+	}
+	USoundBase* SoundCue = m_MusicBank[AudioName];
+	if (SoundCue != nullptr)
+	{
+		StopMusic();
+		UAudioComponent* NewAudio = NewObject <UAudioComponent>(this, UAudioComponent::StaticClass());
+		NewAudio->SetSound(SoundCue);
+		NewAudio->FadeIn(duration, 1.0f, starttime * m_MusicDurationBank[AudioName]);
+		m_ActiveMusic.Add(NewAudio);
+	}
+	else
+	{
+		FString Errorer = TEXT("Audio File '" + AudioName + "' Cannot be found");
+		//const TCHAR* Errer = *Errorer;
+		UE_LOG(LogTemp, Warning, TEXT("This is the data: %s"), *FString(Errorer));
+	}
+
+
+
+
+
+
+}
+
+
+void USHST_AudioManager::FadeOutMusic(float duration)
+{
+
+	if (m_ActiveMusic.Num() > 0) {
+		for (int32 Index = m_ActiveMusic.Num() - 1; Index >= 0; --Index)
+		{
+			m_ActiveMusic[Index]->FadeOut(duration, 0.0);
+			const bool bAllowShrinking = false;
+			m_ActiveMusic.RemoveAt(Index, 1, bAllowShrinking);
+		}
+	}
+
+}
+
+UAudioComponent* USHST_AudioManager::AddStem(FString AudioName, FString StemName,float starttime, bool random)
+{
+
+	if (!m_MusicBank.Find(AudioName))
+	{
+		LoadMusic(AudioName);
+	}
+
+	USoundBase* SoundCue = m_MusicBank[AudioName];
+	if (SoundCue != nullptr)
+	{
+		if (random)
+		{
+			int randomer = FMath::RandRange(0, 4);
+			starttime = 0.2f * randomer;
+		}
+		UAudioComponent* NewAudio = NewObject <UAudioComponent>(this, UAudioComponent::StaticClass());
+		NewAudio->SetSound(SoundCue);
+		NewAudio->Play(starttime * m_MusicDurationBank[AudioName]);
+		//UE_LOG(LogTemp, Warning, TEXT("DURATION GETTTT: %f  LLLLLLLLLLLLLLLLL"), starttime * m_MusicDurationBank[AudioName]);
+		m_ActiveStem.Add(StemName, NewAudio);
+		return NewAudio;
+	}
+	else
+	{
+		FString Errorer = TEXT("Audio File '" + AudioName + "' Cannot be found");
+		//const TCHAR* Errer = *Errorer;
+		UE_LOG(LogTemp, Warning, TEXT("This is the data: %s"), *FString(Errorer));
+		return nullptr;
+	}
+
+}
+
+UAudioComponent* USHST_AudioManager::GetStem( FString StemName)
+{
+	if (m_ActiveStem.Find(StemName))
+	{
+		return m_ActiveStem[StemName];
+	}
+	else
+	{
+		return nullptr;
+	}
+}
+
+void USHST_AudioManager::RemoveStem(FString StemName)
+{
+	if (m_ActiveStem.Find(StemName))
+	{
+		m_ActiveStem[StemName]->Stop();
+		m_ActiveStem.Remove(StemName);
+	}
+}
+
+UAudioComponent* USHST_AudioManager::GetCurrentMusic()
+{
+	if (m_ActiveMusic.Num()>0)
+	{
+		return m_ActiveMusic.Last();
+	}
+	else
+	{
+		return nullptr;
+	}
+}
+
+
+
+//void USHST_AudioManager::PlayFMODEvent(UFMODEvent* FMODEvent,UObject* WorldContextObj,FTransform transform, bool AutoPlay =true)
+//{
+//	UFMODBlueprintStatics::PlayEventAtLocation(WorldContextObj, FMODEvent, transform, AutoPlay);
+//}
